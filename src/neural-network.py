@@ -1,92 +1,22 @@
 # %%
-# Dataset: stores the samples and their corresponding labels
-# DataLoader: wraps an iterable around the Dataset
 import torch
-from matplotlib import pyplot as plt
-from sklearn.datasets import make_moons
 from torch import nn
 from torch.optim import SGD
-from torch.utils.data import DataLoader, TensorDataset, random_split
 
-# %% Generate a dataset
-X, y = make_moons(n_samples=1000, noise=0.2)
-
-# X ist a 2d vector of the x, y coordinates of the samples
-# y is a 1d vector of the class labels (0 or 1) for each sample
-print("X:", X.shape)
-print("sample: ", X[0])
-print()
-
-print("y:", y.shape)
-print("sample: ", y[0])
-
-# %% Visualize the dataset
-plt.scatter(X[:, 0], X[:, 1], c=y)
-plt.show()
-
-# %% Create tensors from the vectors
-X_tensor = torch.tensor(X, dtype=torch.float32)
-y_tensor = torch.tensor(y, dtype=torch.long)
-
-# X_tensor has size [1000, 2] which means 2 dimensionsal tensor with 1000 samples and 2 features (x, y coordinates)
-print("X_tensor:", X_tensor.shape, X_tensor.dtype, X_tensor.device)
-
-# X_tensor[0] has size [2] which means 1 dimensional tensor with 2 elements
-print("sample: ", X_tensor[0], ",", X_tensor[0].shape)
-
-# X_tensor[0][0] has size [] which means a scalar value (0-dimensional tensor)
-print("\t", X_tensor[0][0], ", ", X_tensor[0][0].shape)
-print()
-
-print("y_tensor:", y_tensor.shape, y_tensor.dtype, y_tensor.device)
-print("sample: ", y_tensor[0])
-
-# %% Create a TensorDataset from the vectors
-# TensorDataset wraps tensors together like a map / zip function
-# -> map X and y together so that when we iterate through the dataset,
-#    we get both the features and the labels for each sample
-dataset = TensorDataset(X_tensor, y_tensor)
-
-# create a train test split of the dataset
-train_set, test_set = random_split(dataset, [0.8, 0.2])
-print(train_set[0])
-
-# %%
-# Create a DataLoader from the dataset
-# dataset: abstract class, basically anything that maps indices to data samples
-# batch_size: how many samples per batch to load
-# shuffle: whether to shuffle the data at every epoch
-train_loader = DataLoader(dataset=train_set, batch_size=32, shuffle=True)
-
-# DataLoader is an iterable, so we can loop through it to get batches of data
-# or access the iterator directly to get the next batch of data
-batch = train_loader._get_iterator()._next_data()
-
-# we set the batch size to 32, so we get 32 samples for each _next_data call
-# the batch has the shape [1, 1]:
-#   -> the first element is the tensor of all features: [32, 2]
-#   -> the second element is the tensor of all labels:  [32]
-print(batch[0].shape)
-print(batch[1].shape)
-
-# when shuffle=False, the first batch contains exactly the first 32 samples of the dataset
-# print(batch[0][0] == dataset[0][0])
-
-# when shuffle=True, each batch contains random samples from the dataset
-# it guarantees that all samples are seen once per epoch, but the order is different each time
-print(batch[0][0] == train_set[0][0])
-
-# %% use hardware acceleration if available
-device = (
-    torch.accelerator.current_accelerator().type
-    if torch.accelerator.is_available()
-    else "cpu"
+from utils import (
+    get_data_loaders,
+    get_device,
+    get_moon_dataset,
+    visualize_decision_boundary,
 )
-print(f"Using {device} device")
+
+train_set, test_set = get_moon_dataset()
+train_loader, test_loader = get_data_loaders(train_set, test_set)
+device = get_device()
 
 
 # %% Create a neural network
-# nn: provides all the building blocks for creating *neural networks*
+# nn: provides all the building blocks for creating neural networks
 # Module: the base class for all neural network modules
 class NeuralNetwork(nn.Module):
     def __init__(self):
@@ -100,7 +30,8 @@ class NeuralNetwork(nn.Module):
             nn.Linear(16, 2),  # output layer: 16 neurons -> 2 classes
         )
 
-    # we implement the forward method to define the forward pass
+    # implement the forward method to define the forward pass
+    # we just pass the input through the sequential stack of layers and return the output
     def forward(self, x):
         return self.stack(x)
 
@@ -174,8 +105,6 @@ for epoch in range(epochs):
 # %% Evaluate on test set
 # set model to evaluation mode (disables dropout etc.)
 model.eval()
-
-test_loader = DataLoader(dataset=test_set, batch_size=len(test_set))
 with torch.no_grad():  # no gradient computation needed for evaluation
     for X_test, y_test in test_loader:
         X_test, y_test = X_test.to(device), y_test.to(device)
@@ -186,22 +115,4 @@ with torch.no_grad():  # no gradient computation needed for evaluation
         )
 
 # %% Visualize decision boundary
-with torch.no_grad():
-    # create a grid of points covering the data space
-    x_min, x_max = X[:, 0].min() - 0.5, X[:, 0].max() + 0.5
-    y_min, y_max = X[:, 1].min() - 0.5, X[:, 1].max() + 0.5
-    xx, yy = torch.meshgrid(
-        torch.linspace(x_min, x_max, 200),
-        torch.linspace(y_min, y_max, 200),
-        indexing="xy",
-    )
-    grid = torch.stack([xx.flatten(), yy.flatten()], dim=1).to(device)
-
-    preds = model(grid).argmax(dim=1).cpu().reshape(xx.shape)
-
-    plt.contourf(xx, yy, preds, alpha=0.3, cmap="coolwarm")
-    plt.scatter(X[:, 0], X[:, 1], c=y, cmap="coolwarm", edgecolors="k", s=15)
-    plt.title("Decision Boundary")
-    plt.show()
-
-# %%
+visualize_decision_boundary(model, train_set, device)
